@@ -17,8 +17,9 @@ type Site struct {
 // idPattern はHTMLファイル名に使うID。ディレクトリ脱出ができない形だけ許可する。
 var idPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// Sites は取得するサイト。増やしたり外したりするときはここを編集する。
-var Sites = []Site{
+// defaultSites は R2 に sites.db がまだ無いときの初期データ。
+// 正本は R2 上の SQLite なので、2回目以降の起動ではここを読まない。
+var defaultSites = []Site{
 	{ID: "go-blog", Name: "Go Blog", URL: "https://go.dev/blog/feed.atom"},
 	{ID: "zenn", Name: "Zenn", URL: "https://zenn.dev/feed"},
 	{ID: "github-blog", Name: "GitHub Blog", URL: "https://github.blog/feed/"},

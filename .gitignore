@@ -1,3 +1,8 @@
 /out/
 /rss-reader
 *.exe
+.env
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
