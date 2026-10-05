@@ -1,8 +1,10 @@
 # RSSリーダー
 
-登録済みのRSS/Atomを取得し、結果をHTMLファイルとして保存するGoのバッチです。サイト一覧はコードに直書きしています。
+登録済みのRSS/Atomを取得し、結果をHTMLファイルとして保存するGoのバッチです。サイト一覧は Cloudflare R2 上の SQLite ファイルが正本です。
 
 ## 実行
+
+環境変数（下の「サイトの保存先」）を入れてから実行します。
 
 1回だけ取得して終了します。
 
@@ -35,9 +37,43 @@ go build -o rss-reader ./cmd/rss-reader
 - `out/index.html` … サイト一覧と各サイトの新しい記事
 - `out/<id>.html` … サイトごとの記事
 
+## サイトの保存先（Cloudflare R2）
+
+登録サイトは SQLite の1ファイルです。置き場所は R2 バケット `rss-reader-sites` のオブジェクト `sites.db` です。起動のたびにこのオブジェクトを読み、登録を変えたときだけ同じキーへ書き戻します。ディスク上のファイルは処理中の一時コピーだけで、消します。正本は R2 です。
+
+アプリが読む設定は次のとおりです。
+
+- `R2_ACCOUNT_ID` … Cloudflare アカウント ID（32桁の16進数）。必須
+- `R2_ACCESS_KEY_ID` … R2 API トークンの Access Key ID。必須
+- `R2_SECRET_ACCESS_KEY` … R2 API トークンの Secret Access Key。必須
+- `R2_BUCKET` … バケット名。省略時は `rss-reader-sites`
+- `R2_OBJECT_KEY` … オブジェクトキー。省略時は `sites.db`
+- `R2_ENDPOINT` … 任意。省略時は `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`
+
+S3 互換 API をパス形式で使います。オブジェクト URL は `https://<ACCOUNT_ID>.r2.cloudflarestorage.com/rss-reader-sites/sites.db` です。
+
+初回の準備:
+
+1. R2 にバケット `rss-reader-sites` を作ります。ダッシュボードか `npx wrangler r2 bucket create rss-reader-sites` です。
+2. そのバケットに対する Object Read と Object Write の API トークンを作り、Access Key ID と Secret Access Key を控えます。
+3. アカウント ID とキーを環境変数に入れます。例は `.env.example` です。
+
+バケットに `sites.db` がまだ無いとき、最初の取得か `-list` で次の4サイトを入れたデータベースを作ってアップロードします。
+
+- `go-blog` … https://go.dev/blog/feed.atom
+- `zenn` … https://zenn.dev/feed
+- `github-blog` … https://github.blog/feed/
+- `hatena-hotentry` … https://b.hatena.ne.jp/hotentry.rss
+
 ## サイトの追加
 
-`internal/rss/sites.go` の `Sites` に足します。`ID` は英小文字・数字・ハイフンだけで、HTMLのファイル名になります。
+`ID` は英小文字・数字・ハイフンだけで、HTMLのファイル名になります。
+
+```sh
+go run ./cmd/rss-reader -add -id example -name Example -url https://example.com/feed.xml
+go run ./cmd/rss-reader -list
+go run ./cmd/rss-reader -remove example
+```
 
 ## テスト
 

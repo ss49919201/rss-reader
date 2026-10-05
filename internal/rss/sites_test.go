@@ -1,10 +1,34 @@
 package rss
 
-import "testing"
+import (
+	"context"
+	"path/filepath"
+	"testing"
+)
 
 func TestRegisteredSites(t *testing.T) {
-	if err := Validate(Sites); err != nil {
+	db, err := openSiteDB(filepath.Join(t.TempDir(), "sites.db"), true)
+	if err != nil {
 		t.Fatal(err)
+	}
+	defer db.close()
+	if err := db.seed(context.Background(), defaultSites); err != nil {
+		t.Fatal(err)
+	}
+	sites, err := db.list(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(sites); err != nil {
+		t.Fatal(err)
+	}
+	if len(sites) != len(defaultSites) {
+		t.Fatalf("sites = %#v", sites)
+	}
+	for i := range defaultSites {
+		if sites[i] != defaultSites[i] {
+			t.Fatalf("sites[%d] = %#v", i, sites[i])
+		}
 	}
 }
 
