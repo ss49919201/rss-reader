@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": "set -o pipefail; out=$(mktemp); trap 'rm -f \"$out\"' EXIT; GOTOOLCHAIN=go$(awk '/^go /{print $2; exit}' go.mod) go run golang.org/x/tools/cmd/deadcode@v0.51.0 ./... | tee \"$out\" && [ ! -s \"$out\" ]"
+      }
+    ]
+  }
+}

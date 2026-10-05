@@ -44,3 +44,15 @@ go build -o rss-reader ./cmd/rss-reader
 ```sh
 go test ./...
 ```
+
+## 未使用関数
+
+`golang.org/x/tools/cmd/deadcode` で、プログラムのエントリポイント（`main`）から到達できない関数を調べます。報告があると失敗します。
+
+Goには、Knipのように未使用ファイルまでまとめて検出する単一のツールはありません。この検査は deadcode です。
+
+```sh
+set -o pipefail; out=$(mktemp); trap 'rm -f "$out"' EXIT; GOTOOLCHAIN=go$(awk '/^go /{print $2; exit}' go.mod) go run golang.org/x/tools/cmd/deadcode@v0.51.0 ./... | tee "$out" && [ ! -s "$out" ]
+```
+
+同じコマンドを CI（`.github/workflows/deadcode.yml`）と Cursor の stop hook（`.cursor/hooks.json`）で実行します。
