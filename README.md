@@ -52,7 +52,7 @@ go test ./...
 Goには、Knipのように未使用ファイルまでまとめて検出する単一のツールはありません。この検査は deadcode です。
 
 ```sh
-./scripts/deadcode.sh
+set -o pipefail; out=$(mktemp); trap 'rm -f "$out"' EXIT; GOTOOLCHAIN=go$(awk '/^go /{print $2; exit}' go.mod) go run golang.org/x/tools/cmd/deadcode@v0.51.0 ./... | tee "$out" && [ ! -s "$out" ]
 ```
 
-`go generate ./...` からも同じ検査を実行します。
+同じコマンドを CI（`.github/workflows/deadcode.yml`）と Cursor の stop hook（`.cursor/hooks.json`）で実行します。

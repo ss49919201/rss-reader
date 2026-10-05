@@ -1,7 +1,5 @@
 package main
 
-//go:generate sh ../../scripts/deadcode.sh
-
 import (
 	"context"
 	"errors"
