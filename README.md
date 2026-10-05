@@ -1,6 +1,33 @@
 # RSSリーダー
 
-登録済みのRSS/Atomを取得し、結果をHTMLファイルとして保存するGoのバッチです。サイト一覧はコードに直書きしています。
+登録済みのRSS/Atomを取得し、結果をHTMLファイルとして保存するGoのバッチです。サイト一覧は Cloudflare R2 に置いた SQLite ファイルに保存します。
+
+## R2 の準備
+
+サイト一覧は R2 バケットのオブジェクト `sites.db`（SQLite）が正本です。実行のたびに R2 から一時ファイルへダウンロードして読み、サイトを追加・削除したときだけアップロードし直します。ローカルには一時ファイル以外を残しません。
+
+1. バケットを作ります。名前は既存のものと重ならないものを選んでください。
+
+   ```sh
+   npx wrangler r2 bucket create <bucket>
+   ```
+
+2. Cloudflare ダッシュボードの R2 →「API トークンを管理」で、そのバケットに「オブジェクト読み取りと書き込み」権限のトークンを作り、Access Key ID と Secret Access Key を控えます。
+
+3. 環境変数を設定します。
+
+   | 変数 | 必須 | 内容 |
+   | --- | --- | --- |
+   | `R2_ACCOUNT_ID` | ○ | Cloudflare のアカウントID。エンドポイント `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` に使います |
+   | `R2_ACCESS_KEY_ID` | ○ | R2 API トークンの Access Key ID |
+   | `R2_SECRET_ACCESS_KEY` | ○ | R2 API トークンの Secret Access Key |
+   | `R2_BUCKET` | ○ | バケット名 |
+   | `R2_OBJECT_KEY` | | オブジェクトキー。既定は `sites.db` |
+   | `R2_ENDPOINT` | | エンドポイントを上書きします（S3互換のローカルサーバーで試すとき用）。指定すると `R2_ACCOUNT_ID` は不要です |
+
+初回、`sites.db` がまだなければ、Go Blog・Zenn・GitHub Blog・はてなブックマーク人気エントリーの4件を登録したデータベースを作ってアップロードします。
+
+書き込みは ETag を使った条件付き PUT です。別のプロセスが同時に書き換えていたら、取得からやり直すので更新は失われません。
 
 ## 実行
 
@@ -16,7 +43,7 @@ go run ./cmd/rss-reader -out out
 go run ./cmd/rss-reader -interval 1h -out out
 ```
 
-cronで1時間ごとに実行する例です。
+cronで1時間ごとに実行する例です。cron の環境にも `R2_*` 変数を渡してください。
 
 ```cron
 0 * * * * cd /path/to/rss-reader && /path/to/rss-reader -out /var/www/rss
@@ -37,7 +64,17 @@ go build -o rss-reader ./cmd/rss-reader
 
 ## サイトの追加
 
-`internal/rss/sites.go` の `Sites` に足します。`ID` は英小文字・数字・ハイフンだけで、HTMLのファイル名になります。
+R2 上の `sites.db` を `sites` サブコマンドで編集します。`ID` は英小文字・数字・ハイフンだけで、HTMLのファイル名になります。
+
+```sh
+go run ./cmd/rss-reader sites list
+go run ./cmd/rss-reader sites add example "Example" https://example.com/feed.xml
+go run ./cmd/rss-reader sites remove example
+```
+
+`-interval` で定期実行している間も、毎回 R2 から読み直すので、追加・削除は次の取得から反映されます。
+
+テーブルは `sites (id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT NOT NULL)` で、登録順に取得します。
 
 ## テスト
 
