@@ -2,12 +2,6 @@ package rss
 
 import "testing"
 
-func TestRegisteredSites(t *testing.T) {
-	if err := Validate(Sites); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestValidate(t *testing.T) {
 	ok := []Site{{ID: "go-blog", Name: "Go", URL: "https://example.com/feed"}}
 	if err := Validate(ok); err != nil {

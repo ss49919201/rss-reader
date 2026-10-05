@@ -17,14 +17,6 @@ type Site struct {
 // idPattern はHTMLファイル名に使うID。ディレクトリ脱出ができない形だけ許可する。
 var idPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// Sites は取得するサイト。増やしたり外したりするときはここを編集する。
-var Sites = []Site{
-	{ID: "go-blog", Name: "Go Blog", URL: "https://go.dev/blog/feed.atom"},
-	{ID: "zenn", Name: "Zenn", URL: "https://zenn.dev/feed"},
-	{ID: "github-blog", Name: "GitHub Blog", URL: "https://github.blog/feed/"},
-	{ID: "hatena-hotentry", Name: "はてなブックマーク 人気エントリー", URL: "https://b.hatena.ne.jp/hotentry.rss"},
-}
-
 // Validate はサイト定義がHTMLへ安全に保存できる形かを確認する。
 func Validate(sites []Site) error {
 	if len(sites) == 0 {
