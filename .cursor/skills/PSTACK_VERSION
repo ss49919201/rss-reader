@@ -1,0 +1,6 @@
+commit: ccb5507cec1546dc88135c1139c811e6c59115ba
+license: MIT
+plugin_version: 0.15.15
+source: https://github.com/cursor/plugins
+path: pstack
+url: https://github.com/cursor/plugins/tree/ccb5507cec1546dc88135c1139c811e6c59115ba/pstack
