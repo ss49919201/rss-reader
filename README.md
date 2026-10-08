@@ -56,3 +56,18 @@ set -o pipefail; out=$(mktemp); trap 'rm -f "$out"' EXIT; GOTOOLCHAIN=go$(awk '/
 ```
 
 同じコマンドを CI（`.github/workflows/deadcode.yml`）と Cursor の stop hook（`.cursor/hooks.json`）で実行します。
+
+## Cursor クラウドエージェント（pstack）
+
+クラウドエージェントは、このリポジトリの `.cursor/skills/poteto-mode/SKILL.md` を custom mode `poteto-mode` として起動する。中身は [cursor/plugins](https://github.com/cursor/plugins) の `pstack/`（commit は `.cursor/skills/PSTACK_VERSION`、ライセンスは `.cursor/skills/LICENSE`）を編集せずに置いている。
+
+- スキルは `.cursor/skills/<name>/`
+- subagent（`poteto-agent`、Comment Sicko）は `.cursor/agents/`
+- スキルから `../../docs` と `../../README.md` で参照されるガイドと pstack の README、およびそこから辿る `automations/` は、同じ相対位置になるよう `.cursor/docs`、`.cursor/README.md`、`.cursor/automations` に置いている
+- `.cursor/hooks.json` は pstack のものではなく、deadcode の stop hook のまま
+
+更新するときは、リポジトリのルートで次を実行する。`.cursor/hooks.json` は消さない。
+
+```sh
+d=$(mktemp -d) && git clone --filter=blob:none --sparse --depth 1 https://github.com/cursor/plugins.git "$d" && git -C "$d" sparse-checkout set pstack && SHA=$(git -C "$d" rev-parse HEAD) && VER=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$d/pstack/.cursor-plugin/plugin.json") && rm -rf .cursor/skills .cursor/agents .cursor/docs .cursor/automations .cursor/README.md && cp -a "$d/pstack/skills" .cursor/skills && cp -a "$d/pstack/agents" .cursor/agents && cp -a "$d/pstack/docs" .cursor/docs && cp -a "$d/pstack/automations" .cursor/automations && cp -a "$d/pstack/README.md" .cursor/README.md && cp -a "$d/pstack/LICENSE" .cursor/skills/LICENSE && printf 'commit: %s\nlicense: MIT\nplugin_version: %s\nsource: https://github.com/cursor/plugins\npath: pstack\nurl: https://github.com/cursor/plugins/tree/%s/pstack\n' "$SHA" "$VER" "$SHA" > .cursor/skills/PSTACK_VERSION && rm -rf "$d"
+```
