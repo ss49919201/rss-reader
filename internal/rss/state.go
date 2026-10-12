@@ -47,6 +47,25 @@ func SaveState(path string, st RunState) error {
 	return writeAtomic(path, data)
 }
 
+// writeAtomic は同一ディレクトリ内の一時ファイル経由で path を置き換える。
+// 書き込み途中で落ちても、既存の path は壊れない。
+//
+//	 目的ファイル          一時ファイル（同じ dir）
+//	 .rss-state.json       .rss-tmp-*
+//	      │                      │
+//	      │  (1) CreateTemp      │
+//	      │◄─────────────────────┤ 新規作成
+//	      │                      │
+//	      │  (2) Write + Close   │
+//	      │                      ├── 全文書き込み
+//	      │                      │
+//	      │  (3) Rename(tmp→path)│
+//	      │◄─────────────────────┤ 同一 FS 上で名前だけ差し替え（原子的）
+//	      │                      │
+//	      ▼                      ▼
+//	 更新後の JSON            （削除済み）
+//
+// (2) までに失敗した場合は defer で tmp だけ削除し、path は触らない。
 func writeAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, ".rss-tmp-*")
