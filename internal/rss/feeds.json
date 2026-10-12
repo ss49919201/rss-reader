@@ -1,0 +1,22 @@
+[
+  {
+    "id": "go-blog",
+    "name": "Go Blog",
+    "url": "https://go.dev/blog/feed.atom"
+  },
+  {
+    "id": "zenn",
+    "name": "Zenn",
+    "url": "https://zenn.dev/feed"
+  },
+  {
+    "id": "github-blog",
+    "name": "GitHub Blog",
+    "url": "https://github.blog/feed/"
+  },
+  {
+    "id": "hatena-hotentry",
+    "name": "はてなブックマーク 人気エントリー",
+    "url": "https://b.hatena.ne.jp/hotentry.rss"
+  }
+]
