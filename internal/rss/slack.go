@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -26,16 +27,33 @@ type slackPayload struct {
 	Text string `json:"text"`
 }
 
+type slackMessageView struct {
+	SiteName   string
+	Title      string
+	Link       string
+	HasLink    bool
+	When       string
+	Summary    string
+	HasSummary bool
+}
+
+var slackMessageTmpl = template.Must(template.New("slack").Parse(`*{{.SiteName}}*
+{{if .HasLink}}<{{.Link}}|{{.Title}}>{{else}}{{.Title}}{{end}}{{if .When}} ({{.When}}){{end}}{{if .HasSummary}}
+{{.Summary}}{{end}}`))
+
 // NotifyArticle は1件の記事を Slack に送る。
 func (n *WebhookNotifier) NotifyArticle(ctx context.Context, site Site, article Article) error {
-	if n == nil || strings.TrimSpace(n.URL) == "" {
+	if n == nil || n.URL == "" {
 		return fmt.Errorf("Slack Webhook URL が未設定です")
 	}
 	client := n.Client
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
-	text := formatSlackMessage(site, article)
+	text, err := formatSlackMessage(site, article)
+	if err != nil {
+		return err
+	}
 	body, err := json.Marshal(slackPayload{Text: text})
 	if err != nil {
 		return err
@@ -57,33 +75,29 @@ func (n *WebhookNotifier) NotifyArticle(ctx context.Context, site Site, article 
 	return nil
 }
 
-func formatSlackMessage(site Site, article Article) string {
-	when := ""
-	if !article.Published.IsZero() {
-		when = " (" + formatTime(article.Published) + ")"
-	}
+func formatSlackMessage(site Site, article Article) (string, error) {
 	link := safeURL(article.Link, "")
 	title := article.Title
 	if title == "" {
 		title = "(無題)"
 	}
-	var b strings.Builder
-	b.WriteString("*")
-	b.WriteString(site.Name)
-	b.WriteString("*\n")
-	if link != "" {
-		b.WriteString("<")
-		b.WriteString(link)
-		b.WriteString("|")
-		b.WriteString(title)
-		b.WriteString(">")
-	} else {
-		b.WriteString(title)
+	when := ""
+	if !article.Published.IsZero() {
+		when = formatTime(article.Published)
 	}
-	b.WriteString(when)
-	if s := strings.TrimSpace(article.Summary); s != "" {
-		b.WriteString("\n")
-		b.WriteString(s)
+	summary := strings.TrimSpace(article.Summary)
+	view := slackMessageView{
+		SiteName:   site.Name,
+		Title:      title,
+		Link:       link,
+		HasLink:    link != "",
+		When:       when,
+		Summary:    summary,
+		HasSummary: summary != "",
 	}
-	return b.String()
+	var buf bytes.Buffer
+	if err := slackMessageTmpl.Execute(&buf, view); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
