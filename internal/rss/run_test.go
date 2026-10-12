@@ -5,15 +5,30 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 )
 
-func TestRunOnceWritesPartialResult(t *testing.T) {
+type recordingNotifier struct {
+	mu    sync.Mutex
+	calls []string
+	err   error
+}
+
+func (r *recordingNotifier) NotifyArticle(_ context.Context, site Site, article Article) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.err != nil {
+		return r.err
+	}
+	r.calls = append(r.calls, site.Name+":"+article.Title)
+	return nil
+}
+
+func TestRunNotifiesNewArticles(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/bad") {
 			http.Error(w, "nope", http.StatusBadGateway)
@@ -24,82 +39,58 @@ func TestRunOnceWritesPartialResult(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	bootstrap := RunState{LastRun: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
+	if err := SaveState(statePath, bootstrap); err != nil {
+		t.Fatal(err)
+	}
+
 	sites := []Site{
 		{ID: "demo", Name: "Demo", URL: srv.URL + "/rss"},
 		{ID: "broken", Name: "Broken", URL: srv.URL + "/bad"},
 	}
-	dir := t.TempDir()
-	pages, err := RunOnce(context.Background(), sites, dir)
+	rec := &recordingNotifier{}
+	err := Run(context.Background(), sites, rec, statePath)
 	var siteErr *SiteErrors
 	if !errors.As(err, &siteErr) {
 		t.Fatalf("err = %v", err)
 	}
-	if len(pages) != 2 || pages[0].Error != "" || pages[1].Error == "" {
-		t.Fatalf("pages = %#v", pages)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "broken.html")); err != nil {
-		t.Fatal(err)
-	}
-	body, err := os.ReadFile(filepath.Join(dir, "demo.html"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "新しい記事") {
-		t.Fatal("saved html missing article")
+	rec.mu.Lock()
+	calls := append([]string(nil), rec.calls...)
+	rec.mu.Unlock()
+	if len(calls) < 1 {
+		t.Fatalf("notifications = %#v", calls)
 	}
 }
 
-func TestRunOnceRejectsEmptySites(t *testing.T) {
-	_, err := RunOnce(context.Background(), nil, t.TempDir())
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestRepeatUntilCancel(t *testing.T) {
-	var hits atomic.Int32
+func TestRunSkipsFirstExecution(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(sampleRSS))
 	}))
 	defer srv.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	dir := t.TempDir()
-	done := make(chan error, 1)
-	go func() {
-		done <- Repeat(ctx, 30*time.Millisecond, func(ctx context.Context) error {
-			_, err := RunOnce(ctx, []Site{{ID: "demo", Name: "Demo", URL: srv.URL}}, dir)
-			if hits.Load() >= 2 {
-				cancel()
-			}
-			return err
-		})
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("repeat did not stop")
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	rec := &recordingNotifier{}
+	sites := []Site{{ID: "demo", Name: "Demo", URL: srv.URL + "/rss"}}
+	if err := Run(context.Background(), sites, rec, statePath); err != nil {
+		t.Fatal(err)
 	}
-	if hits.Load() < 2 {
-		t.Fatalf("hits = %d", hits.Load())
+	rec.mu.Lock()
+	n := len(rec.calls)
+	rec.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("first run notified %d articles", n)
+	}
+	st, err := LoadState(statePath)
+	if err != nil || st.LastRun.IsZero() {
+		t.Fatalf("state = %#v err=%v", st, err)
 	}
 }
 
-func TestRepeatOnceReturnsError(t *testing.T) {
-	err := Repeat(context.Background(), 0, func(context.Context) error {
-		return errors.New("boom")
-	})
-	if err == nil || err.Error() != "boom" {
-		t.Fatalf("err = %v", err)
+func TestRunRejectsEmptySites(t *testing.T) {
+	err := Run(context.Background(), nil, &recordingNotifier{}, filepath.Join(t.TempDir(), "s.json"))
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

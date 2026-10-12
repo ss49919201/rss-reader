@@ -9,60 +9,46 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/ss49919201/rss-reader/internal/rss"
 )
 
 func main() {
 	log.SetFlags(log.LstdFlags)
-	out := flag.String("out", "out", "HTMLの保存先ディレクトリ")
-	interval := flag.Duration("interval", 0, "定期実行の間隔（例: 30m, 1h）。0 なら1回実行して終了する")
+	statePath := flag.String("state", ".rss-state.json", "前回実行時刻などを保存するJSONファイル")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "使い方: rss-reader [-interval 1h] [-out dir]\n\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "登録済みサイトのRSS/Atomを取得し、結果をHTMLファイルとして保存します。\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "サイトの追加は internal/rss/sites.go の Sites を編集します。\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "使い方: rss-reader [-state path]\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "埋め込み feeds.json の RSS/Atom を取得し、新着を Slack に通知します。\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Webhook URL は環境変数 SLACK_WEBHOOK_URL に設定します。\n\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
-	if *interval < 0 || (*interval > 0 && *interval < time.Second) {
-		fmt.Fprintln(os.Stderr, "interval は 0、または1秒以上を指定してください")
+	webhook := os.Getenv("SLACK_WEBHOOK_URL")
+	if webhook == "" {
+		fmt.Fprintln(os.Stderr, "環境変数 SLACK_WEBHOOK_URL を設定してください")
+		os.Exit(2)
+	}
+
+	sites, err := rss.LoadEmbeddedSites()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if *interval > 0 {
-		log.Printf("定期実行を開始します: 間隔 %s / 保存先 %s", *interval, *out)
-	}
-
-	err := rss.Repeat(ctx, *interval, func(ctx context.Context) error {
-		return runOnce(ctx, *out)
-	})
-	if err != nil {
-		os.Exit(1)
-	}
-}
-
-func runOnce(ctx context.Context, out string) error {
-	pages, err := rss.RunOnce(ctx, rss.Sites, out)
-	for _, page := range pages {
-		if page.Error != "" {
-			log.Printf("失敗 %s: %s", page.Site.Name, page.Error)
-			continue
-		}
-		log.Printf("取得 %s: %d件", page.Site.Name, len(page.Articles))
-	}
+	notifier := &rss.WebhookNotifier{URL: webhook}
+	err = rss.Run(ctx, sites, notifier, *statePath)
 	switch {
 	case err == nil:
-		log.Printf("HTMLを保存しました: %s", out)
+		log.Print("完了しました")
 	case errors.As(err, new(*rss.SiteErrors)):
 		log.Print(err)
-		log.Printf("HTMLを保存しました: %s", out)
+		os.Exit(1)
 	default:
 		log.Print(err)
+		os.Exit(1)
 	}
-	return err
 }

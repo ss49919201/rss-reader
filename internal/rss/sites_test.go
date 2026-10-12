@@ -2,9 +2,13 @@ package rss
 
 import "testing"
 
-func TestRegisteredSites(t *testing.T) {
-	if err := Validate(Sites); err != nil {
+func TestEmbeddedFeeds(t *testing.T) {
+	sites, err := LoadEmbeddedSites()
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(sites) < 1 {
+		t.Fatal("expected embedded feeds")
 	}
 }
 
