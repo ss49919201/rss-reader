@@ -1,25 +1,12 @@
 # RSSリーダー
 
-登録済みのRSS/Atomを取得し、結果をHTMLファイルとして保存するGoのバッチです。サイト一覧はコードに直書きしています。
+埋め込んだ `internal/rss/feeds.json` の RSS/Atom を取得し、新着記事を Slack に通知する Go のバッチです。
 
 ## 実行
 
-1回だけ取得して終了します。
-
 ```sh
-go run ./cmd/rss-reader -out out
-```
-
-プロセス内で定期実行します。
-
-```sh
-go run ./cmd/rss-reader -interval 1h -out out
-```
-
-cronで1時間ごとに実行する例です。
-
-```cron
-0 * * * * cd /path/to/rss-reader && /path/to/rss-reader -out /var/www/rss
+export SLACK_WEBHOOK_URL='https://hooks.slack.com/services/...'
+go run ./cmd/rss-reader -state .rss-state.json
 ```
 
 ビルドする場合:
@@ -28,16 +15,15 @@ cronで1時間ごとに実行する例です。
 go build -o rss-reader ./cmd/rss-reader
 ```
 
-`-interval` を付けた実行は、SIGINT / SIGTERM で取得を中断して終了します。一部のサイトが失敗しても、成功した分と失敗内容はHTMLに残します。1回実行のときは、その場合の終了コードは1です。
+初回実行では通知せず、実行時刻だけ状態ファイルに記録します。2回目以降は、前回実行時刻より新しい公開日時の記事（公開日時が無い記事は未通知のリンクのみ）を Slack に送ります。一部のフィードが失敗しても残りは試し、失敗はまとめてログと終了コードで返します。
 
-## 出力
+## フィードの追加
 
-- `out/index.html` … サイト一覧と各サイトの新しい記事
-- `out/<id>.html` … サイトごとの記事
+`internal/rss/feeds.json` を編集してから再ビルドします。`id` は英小文字・数字・ハイフンだけにしてください。
 
-## サイトの追加
+## GitHub Actions
 
-`internal/rss/sites.go` の `Sites` に足します。`ID` は英小文字・数字・ハイフンだけで、HTMLのファイル名になります。
+`.github/workflows/rss-reader.yml` が1時間ごとに実行します。リポジトリの secret `SLACK_WEBHOOK_URL` を設定してください。前回実行時刻は Actions cache 上の `.rss-state.json` に保存されます。
 
 ## テスト
 
@@ -48,8 +34,6 @@ go test ./...
 ## 未使用関数
 
 `golang.org/x/tools/cmd/deadcode` で、プログラムのエントリポイント（`main`）から到達できない関数を調べます。報告があると失敗します。
-
-Goには、Knipのように未使用ファイルまでまとめて検出する単一のツールはありません。この検査は deadcode です。
 
 ```sh
 set -o pipefail; out=$(mktemp); trap 'rm -f "$out"' EXIT; GOTOOLCHAIN=go$(awk '/^go /{print $2; exit}' go.mod) go run golang.org/x/tools/cmd/deadcode@v0.51.0 ./... | tee "$out" && [ ! -s "$out" ]
