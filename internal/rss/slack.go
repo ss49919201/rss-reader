@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"text/template"
 	"time"
 )
@@ -70,7 +69,7 @@ func (n *WebhookNotifier) NotifyArticle(ctx context.Context, site Site, article 
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("Slack が HTTP %d を返しました: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+		return fmt.Errorf("Slack が HTTP %d を返しました: %s", resp.StatusCode, string(msg))
 	}
 	return nil
 }
@@ -85,15 +84,14 @@ func formatSlackMessage(site Site, article Article) (string, error) {
 	if !article.Published.IsZero() {
 		when = formatTime(article.Published)
 	}
-	summary := strings.TrimSpace(article.Summary)
 	view := slackMessageView{
 		SiteName:   site.Name,
 		Title:      title,
 		Link:       link,
 		HasLink:    link != "",
 		When:       when,
-		Summary:    summary,
-		HasSummary: summary != "",
+		Summary:    article.Summary,
+		HasSummary: article.Summary != "",
 	}
 	var buf bytes.Buffer
 	if err := slackMessageTmpl.Execute(&buf, view); err != nil {

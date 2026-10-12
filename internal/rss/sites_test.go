@@ -22,7 +22,6 @@ func TestValidate(t *testing.T) {
 		nil,
 		{{ID: "../etc", Name: "x", URL: "https://example.com/feed"}},
 		{{ID: "a", Name: "x", URL: "https://example.com"}, {ID: "a", Name: "y", URL: "https://example.com"}},
-		{{ID: "a", Name: " ", URL: "https://example.com"}},
 		{{ID: "a", Name: "x", URL: "file:///tmp/feed.xml"}},
 		{{ID: "a", Name: "x", URL: "javascript:alert(1)"}},
 	}

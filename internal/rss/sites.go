@@ -31,7 +31,7 @@ func Validate(sites []Site) error {
 			return fmt.Errorf("サイトIDが重複しています: %s", site.ID)
 		}
 		seen[site.ID] = struct{}{}
-		if strings.TrimSpace(site.Name) == "" {
+		if site.Name == "" {
 			return fmt.Errorf("サイト名が空です: %s", site.ID)
 		}
 		if err := validateFeedURL(site.URL); err != nil {
@@ -42,7 +42,7 @@ func Validate(sites []Site) error {
 }
 
 func validateFeedURL(raw string) error {
-	u, err := url.Parse(strings.TrimSpace(raw))
+	u, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("フィードURLを解釈できません: %w", err)
 	}

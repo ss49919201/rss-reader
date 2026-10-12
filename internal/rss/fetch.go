@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -128,7 +127,7 @@ func articlesFrom(feed *gofeed.Feed, base string) []Article {
 			title = "(無題)"
 		}
 		summarySrc := item.Description
-		if strings.TrimSpace(summarySrc) == "" {
+		if summarySrc == "" {
 			summarySrc = item.Content
 		}
 		articles = append(articles, Article{
