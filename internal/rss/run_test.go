@@ -3,6 +3,7 @@ package rss
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +11,8 @@ import (
 	"github.com/ss49919201/rss-reader/internal/site"
 	"github.com/ss49919201/rss-reader/internal/store"
 )
+
+var _ store.Store = (*fakeStore)(nil)
 
 type recordingNotifier struct {
 	mu    sync.Mutex
@@ -27,10 +30,66 @@ func (r *recordingNotifier) NotifyArticle(_ context.Context, st site.Site, artic
 	return nil
 }
 
+type fakeStore struct {
+	sites         []site.Site
+	lastRunAt     time.Time
+	notifiedLinks map[string]time.Time
+}
+
+func newFakeStore() *fakeStore {
+	return &fakeStore{notifiedLinks: make(map[string]time.Time)}
+}
+
+func (f *fakeStore) Close() error { return nil }
+
+func (f *fakeStore) ListSites(context.Context) ([]site.Site, error) {
+	return append([]site.Site(nil), f.sites...), nil
+}
+
+func (f *fakeStore) AddSite(_ context.Context, st site.Site) error {
+	if err := site.Validate([]site.Site{st}); err != nil {
+		return err
+	}
+	f.sites = append(f.sites, st)
+	return nil
+}
+
+func (f *fakeStore) RemoveSite(_ context.Context, id string) error {
+	for i, s := range f.sites {
+		if s.ID == id {
+			f.sites = append(f.sites[:i], f.sites[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("サイトが見つかりません: %s", id)
+}
+
+func (f *fakeStore) LastRun(context.Context) (time.Time, error) {
+	return f.lastRunAt, nil
+}
+
+func (f *fakeStore) SetLastRun(_ context.Context, t time.Time) error {
+	f.lastRunAt = t
+	return nil
+}
+
+func (f *fakeStore) HasNotifiedLink(_ context.Context, link string) (bool, error) {
+	_, ok := f.notifiedLinks[link]
+	return ok, nil
+}
+
+func (f *fakeStore) RememberLink(_ context.Context, link string, at time.Time) error {
+	if link == "" {
+		return nil
+	}
+	f.notifiedLinks[link] = at
+	return nil
+}
+
 func TestRunNotifiesNewArticles(t *testing.T) {
-	st := store.NewFake()
-	st.LastRunAt = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	st.Sites = []site.Site{
+	st := newFakeStore()
+	st.lastRunAt = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	st.sites = []site.Site{
 		{ID: "demo", Name: "Demo", URL: "https://example.com/rss"},
 		{ID: "broken", Name: "Broken", URL: "https://example.com/bad"},
 	}
@@ -62,8 +121,8 @@ func TestRunNotifiesNewArticles(t *testing.T) {
 }
 
 func TestRunSkipsFirstExecution(t *testing.T) {
-	st := store.NewFake()
-	st.Sites = []site.Site{{ID: "demo", Name: "Demo", URL: "https://example.com/rss"}}
+	st := newFakeStore()
+	st.sites = []site.Site{{ID: "demo", Name: "Demo", URL: "https://example.com/rss"}}
 	fetch := func(_ context.Context, sites []site.Site) []SitePage {
 		return []SitePage{{
 			Site: sites[0],
@@ -84,13 +143,13 @@ func TestRunSkipsFirstExecution(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("first run notified %d articles", n)
 	}
-	if st.LastRunAt.IsZero() {
+	if st.lastRunAt.IsZero() {
 		t.Fatal("last run not saved")
 	}
 }
 
 func TestRunRejectsEmptySites(t *testing.T) {
-	err := Run(context.Background(), store.NewFake(), &recordingNotifier{}, nil)
+	err := Run(context.Background(), newFakeStore(), &recordingNotifier{}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
