@@ -10,19 +10,17 @@ import (
 	"github.com/ss49919201/rss-reader/internal/store"
 )
 
+const objectKey = "rss-reader.db"
+
 // Session は R2 上の SQLite をダウンロードし、処理後にアップロードする。
 type Session struct {
 	Objects objectstore.ObjectStore
-	Key     string
 }
 
 // WithStore は R2 から DB を取得して fn を実行し、変更をアップロードする。
 func (s *Session) WithStore(ctx context.Context, fn func(store.Store) error) error {
 	if s.Objects == nil {
 		return fmt.Errorf("ObjectStore が未設定です")
-	}
-	if s.Key == "" {
-		return fmt.Errorf("オブジェクトキーが空です")
 	}
 	dir, err := os.MkdirTemp("", "rss-db-*")
 	if err != nil {
@@ -31,7 +29,7 @@ func (s *Session) WithStore(ctx context.Context, fn func(store.Store) error) err
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "rss-reader.db")
 
-	body, etag, err := s.Objects.Get(ctx, s.Key)
+	body, etag, err := s.Objects.Get(ctx, objectKey)
 	if err != nil && err != objectstore.ErrNotFound {
 		return err
 	}
@@ -66,7 +64,7 @@ func (s *Session) WithStore(ctx context.Context, fn func(store.Store) error) err
 	if hadObject {
 		ifMatch = etag
 	}
-	_, err = s.Objects.Put(ctx, s.Key, newBody, ifMatch)
+	_, err = s.Objects.Put(ctx, objectKey, newBody, ifMatch)
 	if err != nil {
 		return err
 	}

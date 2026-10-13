@@ -10,7 +10,6 @@ export R2_ACCOUNT_ID='...'
 export R2_ACCESS_KEY_ID='...'
 export R2_SECRET_ACCESS_KEY='...'
 export R2_BUCKET='...'
-# 任意: export R2_OBJECT_KEY='rss-reader.db'
 
 go run ./cmd/rss-reader run
 ```

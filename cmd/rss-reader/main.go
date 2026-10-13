@@ -238,9 +238,5 @@ func newSession() (*remotedb.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	key := os.Getenv("R2_OBJECT_KEY")
-	if key == "" {
-		key = "rss-reader.db"
-	}
-	return &remotedb.Session{Objects: objects, Key: key}, nil
+	return &remotedb.Session{Objects: objects}, nil
 }
