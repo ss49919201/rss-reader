@@ -3,7 +3,6 @@ package rss
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 const sampleRSS = `<?xml version="1.0"?>
@@ -98,24 +97,3 @@ func TestParseFeedBodyInvalid(t *testing.T) {
 	}
 }
 
-func TestIsNewArticle(t *testing.T) {
-	since := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
-	has := map[string]bool{"https://example.com/seen": true}
-	hasLink := func(link string) bool { return has[link] }
-
-	newer := Article{Link: "https://example.com/n", Published: since.Add(time.Hour)}
-	older := Article{Link: "https://example.com/o", Published: since.Add(-time.Hour)}
-	if !isNewArticle(since, hasLink, newer) || isNewArticle(since, hasLink, older) {
-		t.Fatal("published filter failed")
-	}
-	if isNewArticle(time.Time{}, hasLink, newer) {
-		t.Fatal("first run should not notify")
-	}
-	unpublished := Article{Link: "https://example.com/u"}
-	if !isNewArticle(since, hasLink, unpublished) {
-		t.Fatal("unpublished link should notify once")
-	}
-	if isNewArticle(since, hasLink, Article{Link: "https://example.com/seen"}) {
-		t.Fatal("seen link should not notify")
-	}
-}

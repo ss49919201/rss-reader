@@ -154,3 +154,34 @@ func TestRunRejectsEmptySites(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestIsNewArticle(t *testing.T) {
+	st := newFakeStore()
+	since := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	st.notifiedLinks["https://example.com/seen"] = since
+
+	newer := Article{Link: "https://example.com/n", Published: since.Add(time.Hour)}
+	older := Article{Link: "https://example.com/o", Published: since.Add(-time.Hour)}
+	ok, err := isNewArticle(ctx, st, since, newer)
+	if err != nil || !ok {
+		t.Fatalf("newer: ok=%v err=%v", ok, err)
+	}
+	ok, err = isNewArticle(ctx, st, since, older)
+	if err != nil || ok {
+		t.Fatalf("older: ok=%v err=%v", ok, err)
+	}
+	ok, err = isNewArticle(ctx, st, time.Time{}, newer)
+	if err != nil || ok {
+		t.Fatalf("first run: ok=%v err=%v", ok, err)
+	}
+	unpublished := Article{Link: "https://example.com/u"}
+	ok, err = isNewArticle(ctx, st, since, unpublished)
+	if err != nil || !ok {
+		t.Fatalf("unpublished: ok=%v err=%v", ok, err)
+	}
+	ok, err = isNewArticle(ctx, st, since, Article{Link: "https://example.com/seen"})
+	if err != nil || ok {
+		t.Fatalf("seen: ok=%v err=%v", ok, err)
+	}
+}

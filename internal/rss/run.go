@@ -57,15 +57,12 @@ func Run(ctx context.Context, st store.Store, notifier Notifier, fetch SiteFetch
 			messages = append(messages, fmt.Sprintf("%s: %s", page.Site.Name, page.Error))
 			continue
 		}
-		hasLink := func(link string) bool {
-			ok, err := st.HasNotifiedLink(ctx, link)
-			if err != nil {
-				return true
-			}
-			return ok
-		}
 		for _, article := range page.Articles {
-			if !isNewArticle(lastRun, hasLink, article) {
+			isNew, err := isNewArticle(ctx, st, lastRun, article)
+			if err != nil {
+				return err
+			}
+			if !isNew {
 				continue
 			}
 			if err := notifier.NotifyArticle(ctx, page.Site, article); err != nil {
@@ -94,16 +91,20 @@ func Run(ctx context.Context, st store.Store, notifier Notifier, fetch SiteFetch
 	return nil
 }
 
-func isNewArticle(lastRun time.Time, hasLink func(string) bool, article Article) bool {
+func isNewArticle(ctx context.Context, st store.Store, lastRun time.Time, article Article) (bool, error) {
 	if lastRun.IsZero() {
-		return false
+		return false, nil
 	}
 	if !article.Published.IsZero() {
-		return article.Published.After(lastRun)
+		return article.Published.After(lastRun), nil
 	}
 	link := SafeURL(article.Link, "")
 	if link == "" {
-		return false
+		return false, nil
 	}
-	return !hasLink(link)
+	notified, err := st.HasNotifiedLink(ctx, link)
+	if err != nil {
+		return false, err
+	}
+	return !notified, nil
 }
