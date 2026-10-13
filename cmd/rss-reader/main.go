@@ -9,60 +9,233 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"github.com/ss49919201/rss-reader/internal/objectstore"
+	"github.com/ss49919201/rss-reader/internal/remotedb"
 	"github.com/ss49919201/rss-reader/internal/rss"
+	"github.com/ss49919201/rss-reader/internal/site"
+	"github.com/ss49919201/rss-reader/internal/store"
 )
 
 func main() {
 	log.SetFlags(log.LstdFlags)
-	out := flag.String("out", "out", "HTMLの保存先ディレクトリ")
-	interval := flag.Duration("interval", 0, "定期実行の間隔（例: 30m, 1h）。0 なら1回実行して終了する")
-	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "使い方: rss-reader [-interval 1h] [-out dir]\n\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "登録済みサイトのRSS/Atomを取得し、結果をHTMLファイルとして保存します。\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "サイトの追加は internal/rss/sites.go の Sites を編集します。\n\n")
-		flag.PrintDefaults()
-	}
-	flag.Parse()
-
-	if *interval < 0 || (*interval > 0 && *interval < time.Second) {
-		fmt.Fprintln(os.Stderr, "interval は 0、または1秒以上を指定してください")
+	if len(os.Args) < 2 {
+		usage()
 		os.Exit(2)
+	}
+	switch os.Args[1] {
+	case "run":
+		os.Exit(cmdRun(os.Args[2:]))
+	case "feeds":
+		os.Exit(cmdFeeds(os.Args[2:]))
+	default:
+		usage()
+		os.Exit(2)
+	}
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, "使い方:\n")
+	fmt.Fprintf(os.Stderr, "  rss-reader run\n")
+	fmt.Fprintf(os.Stderr, "  rss-reader feeds list\n")
+	fmt.Fprintf(os.Stderr, "  rss-reader feeds add -id ID -name NAME -url URL\n")
+	fmt.Fprintf(os.Stderr, "  rss-reader feeds remove -id ID\n")
+	fmt.Fprintf(os.Stderr, "  rss-reader feeds seed [-file feeds/feeds.json]\n")
+}
+
+func cmdRun(args []string) int {
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	webhook := os.Getenv("SLACK_WEBHOOK_URL")
+	if webhook == "" {
+		fmt.Fprintln(os.Stderr, "環境変数 SLACK_WEBHOOK_URL を設定してください")
+		return 2
+	}
+	session, err := newSession()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if *interval > 0 {
-		log.Printf("定期実行を開始します: 間隔 %s / 保存先 %s", *interval, *out)
-	}
-
-	err := rss.Repeat(ctx, *interval, func(ctx context.Context) error {
-		return runOnce(ctx, *out)
+	notifier := &rss.WebhookNotifier{URL: webhook}
+	var runErr error
+	err = session.WithStore(ctx, func(st store.Store) error {
+		runErr = rss.Run(ctx, st, notifier, nil)
+		if runErr != nil {
+			var siteErr *rss.SiteErrors
+			if errors.As(runErr, &siteErr) {
+				return nil
+			}
+			return runErr
+		}
+		return nil
 	})
 	if err != nil {
-		os.Exit(1)
+		if errors.Is(err, objectstore.ErrPreconditionFailed) {
+			fmt.Fprintln(os.Stderr, "R2 上の DB が別の実行で更新されました。concurrency 設定を確認してください")
+			return 1
+		}
+		log.Print(err)
+		return 1
+	}
+	switch {
+	case runErr == nil:
+		log.Print("完了しました")
+	case errors.As(runErr, new(*rss.SiteErrors)):
+		log.Print(runErr)
+		return 1
+	default:
+		log.Print(runErr)
+		return 1
+	}
+	return 0
+}
+
+func cmdFeeds(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "feeds のサブコマンドを指定してください (list, add, remove, seed)")
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		return cmdFeedsList(args[1:])
+	case "add":
+		return cmdFeedsAdd(args[1:])
+	case "remove":
+		return cmdFeedsRemove(args[1:])
+	case "seed":
+		return cmdFeedsSeed(args[1:])
+	default:
+		fmt.Fprintln(os.Stderr, "不明な feeds サブコマンドです")
+		return 2
 	}
 }
 
-func runOnce(ctx context.Context, out string) error {
-	pages, err := rss.RunOnce(ctx, rss.Sites, out)
-	for _, page := range pages {
-		if page.Error != "" {
-			log.Printf("失敗 %s: %s", page.Site.Name, page.Error)
-			continue
+func cmdFeedsList(args []string) int {
+	fs := flag.NewFlagSet("feeds list", flag.ExitOnError)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	session, err := newSession()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	ctx := context.Background()
+	err = session.WithStore(ctx, func(st store.Store) error {
+		sites, err := st.ListSites(ctx)
+		if err != nil {
+			return err
 		}
-		log.Printf("取得 %s: %d件", page.Site.Name, len(page.Articles))
+		for _, site := range sites {
+			fmt.Printf("%s\t%s\t%s\n", site.ID, site.Name, site.URL)
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
-	switch {
-	case err == nil:
-		log.Printf("HTMLを保存しました: %s", out)
-	case errors.As(err, new(*rss.SiteErrors)):
-		log.Print(err)
-		log.Printf("HTMLを保存しました: %s", out)
-	default:
-		log.Print(err)
+	return 0
+}
+
+func cmdFeedsAdd(args []string) int {
+	fs := flag.NewFlagSet("feeds add", flag.ExitOnError)
+	id := fs.String("id", "", "サイト ID")
+	name := fs.String("name", "", "表示名")
+	url := fs.String("url", "", "フィード URL")
+	if err := fs.Parse(args); err != nil {
+		return 2
 	}
-	return err
+	if *id == "" || *name == "" || *url == "" {
+		fmt.Fprintln(os.Stderr, "-id, -name, -url は必須です")
+		return 2
+	}
+	session, err := newSession()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	feed := site.Site{ID: *id, Name: *name, URL: *url}
+	ctx := context.Background()
+	err = session.WithStore(ctx, func(st store.Store) error {
+		return st.AddSite(ctx, feed)
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func cmdFeedsRemove(args []string) int {
+	fs := flag.NewFlagSet("feeds remove", flag.ExitOnError)
+	id := fs.String("id", "", "サイト ID")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *id == "" {
+		fmt.Fprintln(os.Stderr, "-id は必須です")
+		return 2
+	}
+	session, err := newSession()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	ctx := context.Background()
+	err = session.WithStore(ctx, func(st store.Store) error {
+		return st.RemoveSite(ctx, *id)
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func cmdFeedsSeed(args []string) int {
+	fs := flag.NewFlagSet("feeds seed", flag.ExitOnError)
+	file := fs.String("file", "feeds/feeds.json", "初期フィード JSON")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	sites, err := site.LoadSitesFile(*file)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	session, err := newSession()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	ctx := context.Background()
+	err = session.WithStore(ctx, func(st store.Store) error {
+		for _, site := range sites {
+			if err := st.AddSite(ctx, site); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func newSession() (*remotedb.Session, error) {
+	objects, err := objectstore.NewR2FromEnv()
+	if err != nil {
+		return nil, err
+	}
+	return &remotedb.Session{Objects: objects}, nil
 }

@@ -32,7 +32,7 @@ func stripTags(s string) string {
 			break
 		}
 		raw := s[i+1 : i+gt]
-		opening := !strings.HasPrefix(strings.TrimSpace(raw), "/")
+		opening := !strings.HasPrefix(strings.TrimLeft(raw, " \t\r\n"), "/")
 		name := tagName(raw)
 		i += gt + 1
 		if opening && (name == "script" || name == "style") {
@@ -63,12 +63,12 @@ func indexFold(s, sub string) int {
 }
 
 func tagName(raw string) string {
-	raw = strings.TrimSpace(raw)
+	raw = strings.TrimLeft(raw, " \t\r\n")
 	if raw == "" {
 		return ""
 	}
 	if raw[0] == '/' {
-		raw = strings.TrimSpace(raw[1:])
+		raw = strings.TrimLeft(raw[1:], " \t\r\n")
 	}
 	if i := strings.IndexAny(raw, " \t\r\n/"); i >= 0 {
 		raw = raw[:i]
@@ -93,12 +93,16 @@ func summarize(s string, limit int) string {
 	if cut <= 0 || cut <= limit-20 {
 		cut = limit
 	}
-	return strings.TrimSpace(string(runes[:cut])) + "…"
+	return collapseSpace(string(runes[:cut])) + "…"
+}
+
+// SafeURL は http/https のリンクだけを返す。相対URLは base で解決する。
+func SafeURL(raw, base string) string {
+	return safeURL(raw, base)
 }
 
 // safeURL は http/https のリンクだけを返す。相対URLは base で解決する。
 func safeURL(raw, base string) string {
-	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}

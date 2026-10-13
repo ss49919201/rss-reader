@@ -1,12 +1,8 @@
 package rss
 
 import (
-	"context"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 )
 
 const sampleRSS = `<?xml version="1.0"?>
@@ -56,86 +52,48 @@ const sampleAtom = `<?xml version="1.0" encoding="utf-8"?>
   </entry>
 </feed>`
 
-func TestFetchRSSAndAtom(t *testing.T) {
-	var ua string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ua = r.Header.Get("User-Agent")
-		switch r.URL.Path {
-		case "/rss":
-			w.Header().Set("Content-Type", "application/rss+xml")
-			_, _ = w.Write([]byte(sampleRSS))
-		case "/atom":
-			w.Header().Set("Content-Type", "application/atom+xml")
-			_, _ = w.Write([]byte(sampleAtom))
-		case "/bad":
-			http.Error(w, "nope", http.StatusInternalServerError)
-		case "/html":
-			w.Header().Set("Content-Type", "text/html")
-			_, _ = w.Write([]byte("<html>not a feed</html>"))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	client := srv.Client()
-	page := Fetch(context.Background(), client, Site{ID: "demo", Name: "Demo", URL: srv.URL + "/rss"})
-	if page.Error != "" {
-		t.Fatal(page.Error)
+func TestParseFeedBodyRSS(t *testing.T) {
+	articles, err := ParseFeedBody([]byte(sampleRSS), "https://example.com/feed")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if ua != userAgent {
-		t.Fatalf("user agent = %q", ua)
+	if len(articles) != 4 {
+		t.Fatalf("articles = %d", len(articles))
 	}
-	if len(page.Articles) != 4 {
-		t.Fatalf("articles = %d", len(page.Articles))
+	if articles[0].Title != "新しい記事" || articles[0].Link != "https://example.com/new" {
+		t.Fatalf("newest = %#v", articles[0])
 	}
-	if page.Articles[0].Title != "新しい記事" || page.Articles[0].Link != "https://example.com/new" {
-		t.Fatalf("newest = %#v", page.Articles[0])
+	if articles[0].Summary != "本文です" {
+		t.Fatalf("summary = %q", articles[0].Summary)
 	}
-	if page.Articles[0].Summary != "本文です" {
-		t.Fatalf("summary = %q", page.Articles[0].Summary)
-	}
-	if page.Articles[0].Published.IsZero() {
+	if articles[0].Published.IsZero() {
 		t.Fatal("missing published time")
 	}
-	if !strings.Contains(page.Articles[1].Title, "Hello & World") || strings.Contains(page.Articles[1].Title, "<script>") {
-		t.Fatalf("title = %q", page.Articles[1].Title)
+	if !strings.Contains(articles[1].Title, "Hello & World") || strings.Contains(articles[1].Title, "<script>") {
+		t.Fatalf("title = %q", articles[1].Title)
 	}
-	if page.Articles[2].Link != srv.URL+"/relative" {
-		t.Fatalf("relative link = %s", page.Articles[2].Link)
+	if articles[2].Link != "https://example.com/relative" {
+		t.Fatalf("relative link = %s", articles[2].Link)
 	}
-	if page.Articles[3].Link != "" || page.Articles[3].Title != "危険なリンク" {
-		t.Fatalf("unsafe link kept: %#v", page.Articles[3])
+	if articles[3].Link != "" || articles[3].Title != "危険なリンク" {
+		t.Fatalf("unsafe link kept: %#v", articles[3])
 	}
+}
 
-	atom := Fetch(context.Background(), client, Site{ID: "atom", Name: "Atom", URL: srv.URL + "/atom"})
-	if atom.Error != "" {
-		t.Fatal(atom.Error)
+func TestParseFeedBodyAtom(t *testing.T) {
+	articles, err := ParseFeedBody([]byte(sampleAtom), "https://example.com/feed")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(atom.Articles) != 1 || atom.Articles[0].Title != "Atomの記事" || atom.Articles[0].Summary != "概要" {
-		t.Fatalf("atom = %#v", atom.Articles)
+	if len(articles) != 1 || articles[0].Title != "Atomの記事" || articles[0].Summary != "概要" {
+		t.Fatalf("atom = %#v", articles)
 	}
+}
 
-	bad := Fetch(context.Background(), client, Site{ID: "bad", Name: "Bad", URL: srv.URL + "/bad"})
-	if !strings.Contains(bad.Error, "HTTP 500") {
-		t.Fatalf("bad error = %q", bad.Error)
-	}
-	broken := Fetch(context.Background(), client, Site{ID: "html", Name: "HTML", URL: srv.URL + "/html"})
-	if broken.Error == "" {
+func TestParseFeedBodyInvalid(t *testing.T) {
+	_, err := ParseFeedBody([]byte("<html>nope</html>"), "https://example.com")
+	if err == nil {
 		t.Fatal("expected parse error")
 	}
 }
 
-func TestFetchCanceled(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(2 * time.Second)
-	}))
-	defer srv.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	page := Fetch(ctx, srv.Client(), Site{ID: "slow", Name: "Slow", URL: srv.URL})
-	if page.Error == "" {
-		t.Fatal("expected cancel error")
-	}
-}

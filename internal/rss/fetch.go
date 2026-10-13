@@ -7,11 +7,11 @@ import (
 	"io"
 	"net/http"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/mmcdole/gofeed"
+	"github.com/ss49919201/rss-reader/internal/site"
 )
 
 const (
@@ -32,7 +32,7 @@ type Article struct {
 
 // SitePage は1サイト分の取得結果。Error が空でなければ取得に失敗している。
 type SitePage struct {
-	Site      Site
+	Site      site.Site
 	Articles  []Article
 	FetchedAt time.Time
 	Error     string
@@ -41,31 +41,31 @@ type SitePage struct {
 var defaultClient = &http.Client{Timeout: fetchTimeout}
 
 // FetchAll はサイトを並行に取得する。結果の並びは sites と同じ。
-func FetchAll(ctx context.Context, sites []Site) []SitePage {
+func FetchAll(ctx context.Context, sites []site.Site) []SitePage {
 	return fetchAll(ctx, defaultClient, sites)
 }
 
-func fetchAll(ctx context.Context, client *http.Client, sites []Site) []SitePage {
+func fetchAll(ctx context.Context, client *http.Client, sites []site.Site) []SitePage {
 	pages := make([]SitePage, len(sites))
 	var wg sync.WaitGroup
-	for i, site := range sites {
+	for i, feed := range sites {
 		wg.Add(1)
-		go func(i int, site Site) {
+		go func(i int, st site.Site) {
 			defer wg.Done()
-			pages[i] = Fetch(ctx, client, site)
-		}(i, site)
+			pages[i] = Fetch(ctx, client, st)
+		}(i, feed)
 	}
 	wg.Wait()
 	return pages
 }
 
 // Fetch は1サイトのRSSまたはAtomを取得して記事にする。
-func Fetch(ctx context.Context, client *http.Client, site Site) SitePage {
-	page := SitePage{Site: site, FetchedAt: time.Now()}
+func Fetch(ctx context.Context, client *http.Client, st site.Site) SitePage {
+	page := SitePage{Site: st, FetchedAt: time.Now()}
 	if client == nil {
 		client = defaultClient
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, site.URL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, st.URL, nil)
 	if err != nil {
 		page.Error = fmt.Sprintf("リクエストを作成できません: %v", err)
 		return page
@@ -94,13 +94,22 @@ func Fetch(ctx context.Context, client *http.Client, site Site) SitePage {
 		return page
 	}
 
-	feed, err := gofeed.NewParser().Parse(bytes.NewReader(body))
+	articles, err := ParseFeedBody(body, st.URL)
 	if err != nil {
 		page.Error = fmt.Sprintf("フィードを解釈できませんでした: %v", err)
 		return page
 	}
-	page.Articles = articlesFrom(feed, site.URL)
+	page.Articles = articles
 	return page
+}
+
+// ParseFeedBody は RSS/Atom の生データを記事一覧に変換する。
+func ParseFeedBody(body []byte, base string) ([]Article, error) {
+	feed, err := gofeed.NewParser().Parse(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	return articlesFrom(feed, base), nil
 }
 
 func articlesFrom(feed *gofeed.Feed, base string) []Article {
@@ -128,7 +137,7 @@ func articlesFrom(feed *gofeed.Feed, base string) []Article {
 			title = "(無題)"
 		}
 		summarySrc := item.Description
-		if strings.TrimSpace(summarySrc) == "" {
+		if summarySrc == "" {
 			summarySrc = item.Content
 		}
 		articles = append(articles, Article{

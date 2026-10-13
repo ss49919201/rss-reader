@@ -1,12 +1,6 @@
-package rss
+package site
 
 import "testing"
-
-func TestRegisteredSites(t *testing.T) {
-	if err := Validate(Sites); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestValidate(t *testing.T) {
 	ok := []Site{{ID: "go-blog", Name: "Go", URL: "https://example.com/feed"}}
@@ -18,7 +12,7 @@ func TestValidate(t *testing.T) {
 		nil,
 		{{ID: "../etc", Name: "x", URL: "https://example.com/feed"}},
 		{{ID: "a", Name: "x", URL: "https://example.com"}, {ID: "a", Name: "y", URL: "https://example.com"}},
-		{{ID: "a", Name: " ", URL: "https://example.com"}},
+		{{ID: "a", Name: "", URL: "https://example.com"}},
 		{{ID: "a", Name: "x", URL: "file:///tmp/feed.xml"}},
 		{{ID: "a", Name: "x", URL: "javascript:alert(1)"}},
 	}

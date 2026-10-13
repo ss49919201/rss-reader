@@ -1,0 +1,17 @@
+CREATE TABLE IF NOT EXISTS sites (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  last_run TEXT NOT NULL DEFAULT ''
+);
+
+INSERT OR IGNORE INTO run_state (id, last_run) VALUES (1, '');
+
+CREATE TABLE IF NOT EXISTS notified_links (
+  link TEXT PRIMARY KEY NOT NULL,
+  notified_at TEXT NOT NULL
+);
