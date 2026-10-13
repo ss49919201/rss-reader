@@ -67,7 +67,7 @@ func cmdRun(args []string) int {
 	notifier := &rss.WebhookNotifier{URL: webhook}
 	var runErr error
 	err = session.WithStore(ctx, func(st store.Store) error {
-		runErr = rss.Run(ctx, st, notifier)
+		runErr = rss.Run(ctx, st, notifier, nil)
 		if runErr != nil {
 			var siteErr *rss.SiteErrors
 			if errors.As(runErr, &siteErr) {

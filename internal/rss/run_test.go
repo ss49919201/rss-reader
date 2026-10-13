@@ -3,10 +3,6 @@ package rss
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
-	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -31,42 +27,28 @@ func (r *recordingNotifier) NotifyArticle(_ context.Context, st site.Site, artic
 	return nil
 }
 
-func openTestStore(t *testing.T) store.Store {
-	path := filepath.Join(t.TempDir(), "test.db")
-	db, err := store.CreateEmptyFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return db
-}
-
 func TestRunNotifiesNewArticles(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/bad") {
-			http.Error(w, "nope", http.StatusBadGateway)
-			return
-		}
-		w.Header().Set("Content-Type", "application/rss+xml")
-		_, _ = w.Write([]byte(sampleRSS))
-	}))
-	defer srv.Close()
-
-	db := openTestStore(t)
-	ctx := context.Background()
-	if err := db.SetLastRun(ctx, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatal(err)
+	st := store.NewFake()
+	st.LastRunAt = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	st.Sites = []site.Site{
+		{ID: "demo", Name: "Demo", URL: "https://example.com/rss"},
+		{ID: "broken", Name: "Broken", URL: "https://example.com/bad"},
 	}
-	for _, feed := range []site.Site{
-		{ID: "demo", Name: "Demo", URL: srv.URL + "/rss"},
-		{ID: "broken", Name: "Broken", URL: srv.URL + "/bad"},
-	} {
-		if err := db.AddSite(ctx, feed); err != nil {
-			t.Fatal(err)
+	fetch := func(_ context.Context, sites []site.Site) []SitePage {
+		return []SitePage{
+			{
+				Site: sites[0],
+				Articles: []Article{{
+					Title:     "新しい記事",
+					Link:      "https://example.com/new",
+					Published: time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC),
+				}},
+			},
+			{Site: sites[1], Error: "HTTP 502"},
 		}
 	}
-
 	rec := &recordingNotifier{}
-	err := Run(ctx, db, rec)
+	err := Run(context.Background(), st, rec, fetch)
 	var siteErr *SiteErrors
 	if !errors.As(err, &siteErr) {
 		t.Fatalf("err = %v", err)
@@ -74,25 +56,26 @@ func TestRunNotifiesNewArticles(t *testing.T) {
 	rec.mu.Lock()
 	calls := append([]string(nil), rec.calls...)
 	rec.mu.Unlock()
-	if len(calls) < 1 {
+	if len(calls) != 1 || calls[0] != "Demo:新しい記事" {
 		t.Fatalf("notifications = %#v", calls)
 	}
 }
 
 func TestRunSkipsFirstExecution(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/rss+xml")
-		_, _ = w.Write([]byte(sampleRSS))
-	}))
-	defer srv.Close()
-
-	db := openTestStore(t)
-	ctx := context.Background()
-	if err := db.AddSite(ctx, site.Site{ID: "demo", Name: "Demo", URL: srv.URL + "/rss"}); err != nil {
-		t.Fatal(err)
+	st := store.NewFake()
+	st.Sites = []site.Site{{ID: "demo", Name: "Demo", URL: "https://example.com/rss"}}
+	fetch := func(_ context.Context, sites []site.Site) []SitePage {
+		return []SitePage{{
+			Site: sites[0],
+			Articles: []Article{{
+				Title:     "新しい記事",
+				Link:      "https://example.com/new",
+				Published: time.Now(),
+			}},
+		}}
 	}
 	rec := &recordingNotifier{}
-	if err := Run(ctx, db, rec); err != nil {
+	if err := Run(context.Background(), st, rec, fetch); err != nil {
 		t.Fatal(err)
 	}
 	rec.mu.Lock()
@@ -101,15 +84,13 @@ func TestRunSkipsFirstExecution(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("first run notified %d articles", n)
 	}
-	last, err := db.LastRun(ctx)
-	if err != nil || last.IsZero() {
-		t.Fatalf("last run = %v err=%v", last, err)
+	if st.LastRunAt.IsZero() {
+		t.Fatal("last run not saved")
 	}
 }
 
 func TestRunRejectsEmptySites(t *testing.T) {
-	db := openTestStore(t)
-	err := Run(context.Background(), db, &recordingNotifier{})
+	err := Run(context.Background(), store.NewFake(), &recordingNotifier{}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}

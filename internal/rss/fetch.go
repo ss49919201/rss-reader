@@ -94,13 +94,22 @@ func Fetch(ctx context.Context, client *http.Client, st site.Site) SitePage {
 		return page
 	}
 
-	feed, err := gofeed.NewParser().Parse(bytes.NewReader(body))
+	articles, err := ParseFeedBody(body, st.URL)
 	if err != nil {
 		page.Error = fmt.Sprintf("フィードを解釈できませんでした: %v", err)
 		return page
 	}
-	page.Articles = articlesFrom(feed, st.URL)
+	page.Articles = articles
 	return page
+}
+
+// ParseFeedBody は RSS/Atom の生データを記事一覧に変換する。
+func ParseFeedBody(body []byte, base string) ([]Article, error) {
+	feed, err := gofeed.NewParser().Parse(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	return articlesFrom(feed, base), nil
 }
 
 func articlesFrom(feed *gofeed.Feed, base string) []Article {

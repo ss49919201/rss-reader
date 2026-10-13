@@ -19,8 +19,11 @@ func (e *SiteErrors) Error() string {
 	return "一部のサイトを取得できませんでした: " + strings.Join(e.Messages, "; ")
 }
 
+// SiteFetcher はサイト一覧から取得結果を返す。nil のときは FetchAll を使う。
+type SiteFetcher func(ctx context.Context, sites []site.Site) []SitePage
+
 // Run は store の登録サイトを取得し、未通知の新着記事を notifier へ送る。
-func Run(ctx context.Context, st store.Store, notifier Notifier) error {
+func Run(ctx context.Context, st store.Store, notifier Notifier, fetch SiteFetcher) error {
 	if st == nil {
 		return fmt.Errorf("store が未設定です")
 	}
@@ -42,7 +45,10 @@ func Run(ctx context.Context, st store.Store, notifier Notifier) error {
 	}
 	runAt := time.Now()
 
-	pages := FetchAll(ctx, sites)
+	if fetch == nil {
+		fetch = FetchAll
+	}
+	pages := fetch(ctx, sites)
 	var messages []string
 	var notifyErrs []string
 
