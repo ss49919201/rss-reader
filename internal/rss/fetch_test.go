@@ -115,7 +115,7 @@ func TestIsNewArticle(t *testing.T) {
 	if !isNewArticle(since, hasLink, unpublished) {
 		t.Fatal("unpublished link should notify once")
 	}
-	if !isNewArticle(since, hasLink, Article{Link: "https://example.com/seen"}) {
+	if isNewArticle(since, hasLink, Article{Link: "https://example.com/seen"}) {
 		t.Fatal("seen link should not notify")
 	}
 }
