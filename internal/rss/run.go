@@ -24,13 +24,6 @@ type SiteFetcher func(ctx context.Context, sites []site.Site) []SitePage
 
 // Run は store の登録サイトを取得し、未通知の新着記事を notifier へ送る。
 func Run(ctx context.Context, st store.Store, notifier Notifier, fetch SiteFetcher) error {
-	if st == nil {
-		return fmt.Errorf("store が未設定です")
-	}
-	if notifier == nil {
-		return fmt.Errorf("notifier が未設定です")
-	}
-
 	sites, err := st.ListSites(ctx)
 	if err != nil {
 		return err
