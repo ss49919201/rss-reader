@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"text/template"
 	"time"
+
+	"github.com/ss49919201/rss-reader/internal/site"
 )
 
 // Notifier は新着記事を外部へ送る。
 type Notifier interface {
-	NotifyArticle(ctx context.Context, site Site, article Article) error
+	NotifyArticle(ctx context.Context, site site.Site, article Article) error
 }
 
 // WebhookNotifier は Slack Incoming Webhook へ通知する。
@@ -41,7 +43,7 @@ var slackMessageTmpl = template.Must(template.New("slack").Parse(`*{{.SiteName}}
 {{.Summary}}{{end}}`))
 
 // NotifyArticle は1件の記事を Slack に送る。
-func (n *WebhookNotifier) NotifyArticle(ctx context.Context, site Site, article Article) error {
+func (n *WebhookNotifier) NotifyArticle(ctx context.Context, st site.Site, article Article) error {
 	if n == nil || n.URL == "" {
 		return fmt.Errorf("Slack Webhook URL が未設定です")
 	}
@@ -49,7 +51,7 @@ func (n *WebhookNotifier) NotifyArticle(ctx context.Context, site Site, article 
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
-	text, err := formatSlackMessage(site, article)
+	text, err := formatSlackMessage(st, article)
 	if err != nil {
 		return err
 	}
@@ -74,7 +76,7 @@ func (n *WebhookNotifier) NotifyArticle(ctx context.Context, site Site, article 
 	return nil
 }
 
-func formatSlackMessage(site Site, article Article) (string, error) {
+func formatSlackMessage(st site.Site, article Article) (string, error) {
 	link := safeURL(article.Link, "")
 	title := article.Title
 	if title == "" {
@@ -85,7 +87,7 @@ func formatSlackMessage(site Site, article Article) (string, error) {
 		when = formatTime(article.Published)
 	}
 	view := slackMessageView{
-		SiteName:   site.Name,
+		SiteName:   st.Name,
 		Title:      title,
 		Link:       link,
 		HasLink:    link != "",

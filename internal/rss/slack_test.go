@@ -8,11 +8,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ss49919201/rss-reader/internal/site"
 )
 
 func TestFormatSlackMessage(t *testing.T) {
 	text, err := formatSlackMessage(
-		Site{Name: "Demo"},
+		site.Site{Name: "Demo"},
 		Article{
 			Title:     "Hello",
 			Link:      "https://example.com/a",
@@ -46,10 +48,10 @@ func TestWebhookNotifier(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	site := Site{ID: "demo", Name: "Demo", URL: "https://example.com/feed"}
+	st := site.Site{ID: "demo", Name: "Demo", URL: "https://example.com/feed"}
 	article := Article{Title: "Hello", Link: "https://example.com/a", Published: time.Now()}
 	n := &WebhookNotifier{URL: srv.URL, Client: srv.Client()}
-	if err := n.NotifyArticle(context.Background(), site, article); err != nil {
+	if err := n.NotifyArticle(context.Background(), st, article); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(body, "Hello") || !strings.Contains(body, "Demo") {

@@ -1,16 +1,6 @@
-package rss
+package site
 
 import "testing"
-
-func TestEmbeddedFeeds(t *testing.T) {
-	sites, err := LoadEmbeddedSites()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sites) < 1 {
-		t.Fatal("expected embedded feeds")
-	}
-}
 
 func TestValidate(t *testing.T) {
 	ok := []Site{{ID: "go-blog", Name: "Go", URL: "https://example.com/feed"}}
@@ -22,6 +12,7 @@ func TestValidate(t *testing.T) {
 		nil,
 		{{ID: "../etc", Name: "x", URL: "https://example.com/feed"}},
 		{{ID: "a", Name: "x", URL: "https://example.com"}, {ID: "a", Name: "y", URL: "https://example.com"}},
+		{{ID: "a", Name: "", URL: "https://example.com"}},
 		{{ID: "a", Name: "x", URL: "file:///tmp/feed.xml"}},
 		{{ID: "a", Name: "x", URL: "javascript:alert(1)"}},
 	}

@@ -10,6 +10,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ss49919201/rss-reader/internal/site"
+	"github.com/ss49919201/rss-reader/internal/store"
 )
 
 type recordingNotifier struct {
@@ -18,14 +21,23 @@ type recordingNotifier struct {
 	err   error
 }
 
-func (r *recordingNotifier) NotifyArticle(_ context.Context, site Site, article Article) error {
+func (r *recordingNotifier) NotifyArticle(_ context.Context, st site.Site, article Article) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.err != nil {
 		return r.err
 	}
-	r.calls = append(r.calls, site.Name+":"+article.Title)
+	r.calls = append(r.calls, st.Name+":"+article.Title)
 	return nil
+}
+
+func openTestStore(t *testing.T) store.Store {
+	path := filepath.Join(t.TempDir(), "test.db")
+	db, err := store.CreateEmptyFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db
 }
 
 func TestRunNotifiesNewArticles(t *testing.T) {
@@ -39,18 +51,22 @@ func TestRunNotifiesNewArticles(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	bootstrap := RunState{LastRun: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
-	if err := SaveState(statePath, bootstrap); err != nil {
+	db := openTestStore(t)
+	ctx := context.Background()
+	if err := db.SetLastRun(ctx, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
-
-	sites := []Site{
+	for _, feed := range []site.Site{
 		{ID: "demo", Name: "Demo", URL: srv.URL + "/rss"},
 		{ID: "broken", Name: "Broken", URL: srv.URL + "/bad"},
+	} {
+		if err := db.AddSite(ctx, feed); err != nil {
+			t.Fatal(err)
+		}
 	}
+
 	rec := &recordingNotifier{}
-	err := Run(context.Background(), sites, rec, statePath)
+	err := Run(ctx, db, rec)
 	var siteErr *SiteErrors
 	if !errors.As(err, &siteErr) {
 		t.Fatalf("err = %v", err)
@@ -70,10 +86,13 @@ func TestRunSkipsFirstExecution(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	statePath := filepath.Join(t.TempDir(), "state.json")
+	db := openTestStore(t)
+	ctx := context.Background()
+	if err := db.AddSite(ctx, site.Site{ID: "demo", Name: "Demo", URL: srv.URL + "/rss"}); err != nil {
+		t.Fatal(err)
+	}
 	rec := &recordingNotifier{}
-	sites := []Site{{ID: "demo", Name: "Demo", URL: srv.URL + "/rss"}}
-	if err := Run(context.Background(), sites, rec, statePath); err != nil {
+	if err := Run(ctx, db, rec); err != nil {
 		t.Fatal(err)
 	}
 	rec.mu.Lock()
@@ -82,14 +101,15 @@ func TestRunSkipsFirstExecution(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("first run notified %d articles", n)
 	}
-	st, err := LoadState(statePath)
-	if err != nil || st.LastRun.IsZero() {
-		t.Fatalf("state = %#v err=%v", st, err)
+	last, err := db.LastRun(ctx)
+	if err != nil || last.IsZero() {
+		t.Fatalf("last run = %v err=%v", last, err)
 	}
 }
 
 func TestRunRejectsEmptySites(t *testing.T) {
-	err := Run(context.Background(), nil, &recordingNotifier{}, filepath.Join(t.TempDir(), "s.json"))
+	db := openTestStore(t)
+	err := Run(context.Background(), db, &recordingNotifier{})
 	if err == nil {
 		t.Fatal("expected error")
 	}

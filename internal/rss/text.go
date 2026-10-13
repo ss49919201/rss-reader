@@ -96,6 +96,11 @@ func summarize(s string, limit int) string {
 	return collapseSpace(string(runes[:cut])) + "…"
 }
 
+// SafeURL は http/https のリンクだけを返す。相対URLは base で解決する。
+func SafeURL(raw, base string) string {
+	return safeURL(raw, base)
+}
+
 // safeURL は http/https のリンクだけを返す。相対URLは base で解決する。
 func safeURL(raw, base string) string {
 	if raw == "" {

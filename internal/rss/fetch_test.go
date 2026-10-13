@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ss49919201/rss-reader/internal/site"
 )
 
 const sampleRSS = `<?xml version="1.0"?>
@@ -79,7 +81,7 @@ func TestFetchRSSAndAtom(t *testing.T) {
 	defer srv.Close()
 
 	client := srv.Client()
-	page := Fetch(context.Background(), client, Site{ID: "demo", Name: "Demo", URL: srv.URL + "/rss"})
+	page := Fetch(context.Background(), client, site.Site{ID: "demo", Name: "Demo", URL: srv.URL + "/rss"})
 	if page.Error != "" {
 		t.Fatal(page.Error)
 	}
@@ -108,7 +110,7 @@ func TestFetchRSSAndAtom(t *testing.T) {
 		t.Fatalf("unsafe link kept: %#v", page.Articles[3])
 	}
 
-	atom := Fetch(context.Background(), client, Site{ID: "atom", Name: "Atom", URL: srv.URL + "/atom"})
+	atom := Fetch(context.Background(), client, site.Site{ID: "atom", Name: "Atom", URL: srv.URL + "/atom"})
 	if atom.Error != "" {
 		t.Fatal(atom.Error)
 	}
@@ -116,11 +118,11 @@ func TestFetchRSSAndAtom(t *testing.T) {
 		t.Fatalf("atom = %#v", atom.Articles)
 	}
 
-	bad := Fetch(context.Background(), client, Site{ID: "bad", Name: "Bad", URL: srv.URL + "/bad"})
+	bad := Fetch(context.Background(), client, site.Site{ID: "bad", Name: "Bad", URL: srv.URL + "/bad"})
 	if !strings.Contains(bad.Error, "HTTP 500") {
 		t.Fatalf("bad error = %q", bad.Error)
 	}
-	broken := Fetch(context.Background(), client, Site{ID: "html", Name: "HTML", URL: srv.URL + "/html"})
+	broken := Fetch(context.Background(), client, site.Site{ID: "html", Name: "HTML", URL: srv.URL + "/html"})
 	if broken.Error == "" {
 		t.Fatal("expected parse error")
 	}
@@ -134,7 +136,7 @@ func TestFetchCanceled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	page := Fetch(ctx, srv.Client(), Site{ID: "slow", Name: "Slow", URL: srv.URL})
+	page := Fetch(ctx, srv.Client(), site.Site{ID: "slow", Name: "Slow", URL: srv.URL})
 	if page.Error == "" {
 		t.Fatal("expected cancel error")
 	}

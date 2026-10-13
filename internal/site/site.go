@@ -1,4 +1,4 @@
-package rss
+package site
 
 import (
 	"fmt"
@@ -14,7 +14,6 @@ type Site struct {
 	URL  string
 }
 
-// idPattern はサイト ID。ディレクトリ脱出ができない形だけ許可する。
 var idPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 // Validate はサイト定義が安全に扱える形かを確認する。
@@ -23,19 +22,19 @@ func Validate(sites []Site) error {
 		return fmt.Errorf("サイトが登録されていません")
 	}
 	seen := make(map[string]struct{}, len(sites))
-	for _, site := range sites {
-		if !idPattern.MatchString(site.ID) || len(site.ID) > 64 {
-			return fmt.Errorf("サイトIDが不正です: %q", site.ID)
+	for _, s := range sites {
+		if !idPattern.MatchString(s.ID) || len(s.ID) > 64 {
+			return fmt.Errorf("サイトIDが不正です: %q", s.ID)
 		}
-		if _, ok := seen[site.ID]; ok {
-			return fmt.Errorf("サイトIDが重複しています: %s", site.ID)
+		if _, ok := seen[s.ID]; ok {
+			return fmt.Errorf("サイトIDが重複しています: %s", s.ID)
 		}
-		seen[site.ID] = struct{}{}
-		if site.Name == "" {
-			return fmt.Errorf("サイト名が空です: %s", site.ID)
+		seen[s.ID] = struct{}{}
+		if s.Name == "" {
+			return fmt.Errorf("サイト名が空です: %s", s.ID)
 		}
-		if err := validateFeedURL(site.URL); err != nil {
-			return fmt.Errorf("%s: %w", site.ID, err)
+		if err := validateFeedURL(s.URL); err != nil {
+			return fmt.Errorf("%s: %w", s.ID, err)
 		}
 	}
 	return nil

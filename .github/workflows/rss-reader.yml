@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:
+    inputs:
+      command:
+        description: 'rss-reader への引数 (既定は run。例: feeds list, feeds seed)'
+        required: false
+        default: run
+
+concurrency:
+  group: rss-reader-${{ github.repository }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -16,11 +25,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: actions/cache@v4
-        with:
-          path: .rss-state.json
-          key: rss-state-${{ github.repository }}
-      - name: Notify new articles
+      - name: Run rss-reader
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: go run ./cmd/rss-reader -state .rss-state.json
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: go run ./cmd/rss-reader ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.command || 'run' }}

@@ -1,29 +1,40 @@
 # RSSリーダー
 
-埋め込んだ `internal/rss/feeds.json` の RSS/Atom を取得し、新着記事を Slack に通知する Go のバッチです。
+登録サイトと通知状態を Cloudflare R2 上の SQLite で管理し、新着記事を Slack に通知する Go のバッチです。
 
 ## 実行
 
 ```sh
 export SLACK_WEBHOOK_URL='https://hooks.slack.com/services/...'
-go run ./cmd/rss-reader -state .rss-state.json
+export R2_ACCOUNT_ID='...'
+export R2_ACCESS_KEY_ID='...'
+export R2_SECRET_ACCESS_KEY='...'
+export R2_BUCKET='...'
+# 任意: export R2_OBJECT_KEY='rss-reader.db'
+
+go run ./cmd/rss-reader run
 ```
 
-ビルドする場合:
+## フィード管理
+
+R2 上の DB を操作します（いずれもダウンロード → 変更 → アップロード）。
 
 ```sh
-go build -o rss-reader ./cmd/rss-reader
+go run ./cmd/rss-reader feeds list
+go run ./cmd/rss-reader feeds add -id zenn -name Zenn -url https://zenn.dev/feed
+go run ./cmd/rss-reader feeds remove -id zenn
+go run ./cmd/rss-reader feeds seed -file feeds/feeds.json
 ```
 
-初回実行では通知せず、実行時刻だけ状態ファイルに記録します。2回目以降は、前回実行時刻より新しい公開日時の記事（公開日時が無い記事は未通知のリンクのみ）を Slack に送ります。一部のフィードが失敗しても残りは試し、失敗はまとめてログと終了コードで返します。
-
-## フィードの追加
-
-`internal/rss/feeds.json` を編集してから再ビルドします。`id` は英小文字・数字・ハイフンだけにしてください。
+`feeds seed` はリポジトリ同梱の `feeds/feeds.json` を初期データとして投入します（重複 ID はエラー）。
 
 ## GitHub Actions
 
-`.github/workflows/rss-reader.yml` が1時間ごとに実行します。リポジトリの secret `SLACK_WEBHOOK_URL` を設定してください。前回実行時刻は Actions cache 上の `.rss-state.json` に保存されます。
+`.github/workflows/rss-reader.yml` が1時間ごとに `run` を実行します。`workflow_dispatch` では `command` 入力で `feeds list` や `feeds seed` なども実行できます。`concurrency` で直列化しています。
+
+## スキーマ
+
+`internal/store/schema.sql` を参照してください。
 
 ## テスト
 
@@ -33,10 +44,8 @@ go test ./...
 
 ## 未使用関数
 
-`golang.org/x/tools/cmd/deadcode` で、プログラムのエントリポイント（`main`）から到達できない関数を調べます。報告があると失敗します。
+`golang.org/x/tools/cmd/deadcode` で、プログラムのエントリポイント（`main`）から到達できない関数を調べます。
 
 ```sh
 set -o pipefail; out=$(mktemp); trap 'rm -f "$out"' EXIT; GOTOOLCHAIN=go$(awk '/^go /{print $2; exit}' go.mod) go run golang.org/x/tools/cmd/deadcode@v0.51.0 ./... | tee "$out" && [ ! -s "$out" ]
 ```
-
-同じコマンドを CI（`.github/workflows/deadcode.yml`）と Cursor の stop hook（`.cursor/hooks.json`）で実行します。
