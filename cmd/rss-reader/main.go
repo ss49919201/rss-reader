@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ss49919201/rss-reader/internal/feedseed"
 	"github.com/ss49919201/rss-reader/internal/objectstore"
 	"github.com/ss49919201/rss-reader/internal/remotedb"
 	"github.com/ss49919201/rss-reader/internal/rss"
@@ -207,7 +206,7 @@ func cmdFeedsSeed(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	sites, err := feedseed.LoadSitesFile(*file)
+	sites, err := site.LoadSitesFile(*file)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
