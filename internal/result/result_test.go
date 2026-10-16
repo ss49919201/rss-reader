@@ -76,6 +76,52 @@ func TestMapChain(t *testing.T) {
 	}
 }
 
+func TestMapErr(t *testing.T) {
+	wrapped := errors.New("wrapped")
+	tests := []struct {
+		name      string
+		start     Result[int]
+		wantVal   int
+		wantErr   error
+		wantCalls int
+	}{
+		{
+			name:      "ok skips fn",
+			start:     Ok(5),
+			wantVal:   5,
+			wantCalls: 0,
+		},
+		{
+			name: "err transforms error",
+			start: Err[int](errSentinel),
+			wantErr: wrapped,
+			wantCalls: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var mapErrCalls int
+			out := tt.start.MapErr(func(err error) error {
+				mapErrCalls++
+				if err != errSentinel {
+					t.Fatalf("unexpected err %v", err)
+				}
+				return wrapped
+			})
+			got, err := out.Get()
+			if got != tt.wantVal {
+				t.Fatalf("value = %v, want %v", got, tt.wantVal)
+			}
+			if !sameError(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if mapErrCalls != tt.wantCalls {
+				t.Fatalf("MapErr fn calls = %d, want %d", mapErrCalls, tt.wantCalls)
+			}
+		})
+	}
+}
+
 func TestAndThenShortCircuit(t *testing.T) {
 	var andThenCalls int
 	out := Err[int](errSentinel).AndThen(func(int) Result[string] {

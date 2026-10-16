@@ -1,6 +1,6 @@
 package result
 
-// Result is a success value or an error. Err short-circuits Map, AndThen, AndTee, and AndThrough.
+// Result is a success value or an error. Err short-circuits Map, AndThen, AndTee, AndThrough, and MapErr skips its fn on Ok.
 type Result[T any] struct {
 	value T
 	err   error
@@ -43,6 +43,14 @@ func (r Result[T]) Map[U any](fn func(T) U) Result[U] {
 		return Err[U](r.err)
 	}
 	return Ok(fn(r.value))
+}
+
+// MapErr transforms the error when this result is Err; Ok is returned unchanged.
+func (r Result[T]) MapErr(fn func(error) error) Result[T] {
+	if r.err != nil {
+		return Err[T](fn(r.err))
+	}
+	return r
 }
 
 // AndThen chains another Result-producing step on the success value.
