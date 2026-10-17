@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mmcdole/gofeed"
+	"github.com/ss49919201/andthen/result"
 	"github.com/ss49919201/rss-reader/internal/site"
 )
 
@@ -65,42 +66,52 @@ func Fetch(ctx context.Context, client *http.Client, st site.Site) SitePage {
 	if client == nil {
 		client = defaultClient
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, st.URL, nil)
+	articles, err := fetchFeedArticles(ctx, client, st.URL).Get()
 	if err != nil {
-		page.Error = fmt.Sprintf("リクエストを作成できません: %v", err)
-		return page
-	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		page.Error = fmt.Sprintf("通信に失敗しました: %v", err)
-		return page
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		page.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
-		return page
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
-	if err != nil {
-		page.Error = fmt.Sprintf("本文を読めませんでした: %v", err)
-		return page
-	}
-	if len(body) > maxBodyBytes {
-		page.Error = "フィードが大きすぎます"
-		return page
-	}
-
-	articles, err := ParseFeedBody(body, st.URL)
-	if err != nil {
-		page.Error = fmt.Sprintf("フィードを解釈できませんでした: %v", err)
+		page.Error = err.Error()
 		return page
 	}
 	page.Articles = articles
 	return page
+}
+
+func fetchFeedArticles(ctx context.Context, client *http.Client, feedURL string) result.Result[[]Article] {
+	return result.From(http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)).
+		MapErr(func(err error) error {
+			return fmt.Errorf("リクエストを作成できません: %v", err)
+		}).
+		AndTee(func(req *http.Request) {
+			req.Header.Set("User-Agent", userAgent)
+			req.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8")
+		}).
+		AndThen(func(req *http.Request) result.Result[*http.Response] {
+			resp, err := client.Do(req)
+			if err != nil {
+				return result.Err[*http.Response](fmt.Errorf("通信に失敗しました: %v", err))
+			}
+			return result.Ok(resp)
+		}).
+		AndThen(func(resp *http.Response) result.Result[[]byte] {
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return result.Err[[]byte](fmt.Errorf("HTTP %d", resp.StatusCode))
+			}
+			body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
+			if err != nil {
+				return result.Err[[]byte](fmt.Errorf("本文を読めませんでした: %v", err))
+			}
+			if len(body) > maxBodyBytes {
+				return result.Err[[]byte](fmt.Errorf("フィードが大きすぎます"))
+			}
+			return result.Ok(body)
+		}).
+		AndThen(func(body []byte) result.Result[[]Article] {
+			articles, err := ParseFeedBody(body, feedURL)
+			if err != nil {
+				return result.Err[[]Article](fmt.Errorf("フィードを解釈できませんでした: %v", err))
+			}
+			return result.Ok(articles)
+		})
 }
 
 // ParseFeedBody は RSS/Atom の生データを記事一覧に変換する。

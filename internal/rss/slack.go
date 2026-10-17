@@ -10,6 +10,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/ss49919201/andthen/result"
 	"github.com/ss49919201/rss-reader/internal/site"
 )
 
@@ -51,29 +52,28 @@ func (n *WebhookNotifier) NotifyArticle(ctx context.Context, st site.Site, artic
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
-	text, err := formatSlackMessage(st, article)
-	if err != nil {
-		return err
-	}
-	body, err := json.Marshal(slackPayload{Text: text})
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.URL, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("Slack が HTTP %d を返しました: %s", resp.StatusCode, string(msg))
-	}
-	return nil
+	_, err := result.From(formatSlackMessage(st, article)).
+		AndThen(func(text string) result.Result[[]byte] {
+			return result.From(json.Marshal(slackPayload{Text: text}))
+		}).
+		AndThen(func(body []byte) result.Result[*http.Response] {
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.URL, bytes.NewReader(body))
+			if err != nil {
+				return result.Err[*http.Response](err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			return result.From(client.Do(req))
+		}).
+		AndThrough(func(resp *http.Response) result.Result[struct{}] {
+			defer resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+				return result.Err[struct{}](fmt.Errorf("Slack が HTTP %d を返しました: %s", resp.StatusCode, string(msg)))
+			}
+			return result.Ok(struct{}{})
+		}).
+		Get()
+	return err
 }
 
 func formatSlackMessage(st site.Site, article Article) (string, error) {

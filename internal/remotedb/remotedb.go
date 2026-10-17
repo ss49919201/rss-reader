@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ss49919201/andthen/result"
 	"github.com/ss49919201/rss-reader/internal/objectstore"
 	"github.com/ss49919201/rss-reader/internal/store"
 )
@@ -15,6 +16,11 @@ const objectKey = "rss-reader.db"
 // Session は R2 上の SQLite をダウンロードし、処理後にアップロードする。
 type Session struct {
 	Objects objectstore.ObjectStore
+}
+
+type localDB struct {
+	sqlite  *store.SQLite
+	ifMatch string
 }
 
 // WithStore は R2 から DB を取得して fn を実行し、変更をアップロードする。
@@ -29,44 +35,46 @@ func (s *Session) WithStore(ctx context.Context, fn func(store.Store) error) err
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "rss-reader.db")
 
-	body, etag, err := s.Objects.Get(ctx, objectKey)
+	ldb, err := openLocalDB(ctx, s.Objects, path).Get()
+	if err != nil {
+		return err
+	}
+	defer ldb.sqlite.Close()
+
+	_, err = result.Ok(ldb).
+		AndThrough(func(ldb localDB) result.Result[struct{}] {
+			return result.From(struct{}{}, fn(ldb.sqlite))
+		}).
+		AndThen(func(ldb localDB) result.Result[struct{}] {
+			newBody, err := ldb.sqlite.ExportBytes()
+			if err != nil {
+				return result.Err[struct{}](err)
+			}
+			_, err = s.Objects.Put(ctx, objectKey, newBody, ldb.ifMatch)
+			return result.From(struct{}{}, err)
+		}).
+		Get()
+	return err
+}
+
+func openLocalDB(ctx context.Context, objects objectstore.ObjectStore, path string) result.Result[localDB] {
+	body, etag, err := objects.Get(ctx, objectKey)
 	if err != nil && err != objectstore.ErrNotFound {
-		return err
+		return result.Err[localDB](err)
 	}
-	hadObject := err == nil
-
-	var db *store.SQLite
-	if hadObject {
-		if err := os.WriteFile(path, body, 0o600); err != nil {
-			return err
-		}
-		db, err = store.OpenFile(path)
-		if err != nil {
-			return err
-		}
-	} else {
-		db, err = store.CreateEmptyFile(path)
-		if err != nil {
-			return err
-		}
+	if err == nil {
+		return result.From(struct{}{}, os.WriteFile(path, body, 0o600)).
+			AndThen(func(struct{}) result.Result[localDB] {
+				db, err := store.OpenFile(path)
+				if err != nil {
+					return result.Err[localDB](err)
+				}
+				return result.Ok(localDB{sqlite: db, ifMatch: etag})
+			})
 	}
-	defer db.Close()
-
-	if err := fn(db); err != nil {
-		return err
-	}
-
-	newBody, err := db.ExportBytes()
+	db, err := store.CreateEmptyFile(path)
 	if err != nil {
-		return err
+		return result.Err[localDB](err)
 	}
-	ifMatch := ""
-	if hadObject {
-		ifMatch = etag
-	}
-	_, err = s.Objects.Put(ctx, objectKey, newBody, ifMatch)
-	if err != nil {
-		return err
-	}
-	return nil
+	return result.Ok(localDB{sqlite: db, ifMatch: ""})
 }
