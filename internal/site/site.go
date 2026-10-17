@@ -7,6 +7,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/ss49919201/andthen/result"
 )
 
 // Site は取得対象の1サイト。
@@ -32,11 +34,12 @@ func ParseSitesJSON(data []byte) ([]Site, error) {
 
 // LoadSitesFile は JSON ファイルからフィード定義を読み込む。
 func LoadSitesFile(path string) ([]Site, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return ParseSitesJSON(data)
+	return result.From(os.ReadFile(path)).
+		AndThen(func(data []byte) result.Result[[]Site] {
+			sites, err := ParseSitesJSON(data)
+			return result.From(sites, err)
+		}).
+		Get()
 }
 
 // Validate はサイト定義が安全に扱える形かを確認する。
